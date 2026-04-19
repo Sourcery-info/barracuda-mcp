@@ -1,0 +1,14 @@
+---
+description: TypeScript and Vitest testing standards for this repo
+globs: "**/*.{ts,tsx}"
+alwaysApply: false
+---
+
+# TypeScript and tests
+
+- Use Vitest for unit tests. Place tests under `test/` as `*.test.ts`.
+- Do not hit real OpenAleph in unit tests: mock `fetch` with `vitest` `vi.fn`, inject a stub client, or use MSW if you add HTTP-level integration tests.
+- End-to-end tests against a real instance live in `test/e2e/*.e2e.test.ts` and run with `npm run test:e2e` (loads `.env` via `test/e2e/setup-env.ts`). Default `npm test` excludes that folder.
+- Test URL/query construction and error mapping (`AlephHttpError`, timeouts) explicitly.
+- Export thin functions for tool execution (e.g. `runAlephSearchTool`) when it improves testability without widening the public MCP surface.
+- Match existing style: ESM, `NodeNext` resolution, strict TypeScript, explicit return types on public exports where it helps readability.
