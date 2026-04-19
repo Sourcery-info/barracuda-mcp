@@ -1,0 +1,15 @@
+---
+description: MCP server conventions, OpenAleph integration, and security for barracuda-mcp
+alwaysApply: true
+---
+
+# barracuda-mcp core rules
+
+- Use the official `@modelcontextprotocol/sdk` patterns: `McpServer`, `registerTool`, and stdio transport for local Cursor use unless explicitly building a remote HTTP server.
+- Validate all tool inputs with Zod; keep schemas as the single source of truth and reuse them for `registerTool` `inputSchema` where possible.
+- Never log API keys, `Authorization` headers, or raw credential-bearing config. Redact errors that might echo secrets.
+- Keep HTTP access behind `AlephClient` (or a small dedicated module). Inject `fetch` (or `Pick<AlephClient, "search">`) in tests instead of calling production OpenAleph.
+- Map OpenAleph failures to MCP tool results with `isError: true` and a clear text message; include HTTP status and JSON body when safe.
+- OpenAleph auth for REST: `Authorization: ApiKey <key>` and optional `X-Aleph-Session`, matching the official Python client behavior.
+- Prefer small, pure helpers (URL building, env parsing) that are easy to unit test.
+- Expose OpenAleph via tools: `aleph_search` (`/api/2/search`), `aleph_get_entity` (`/api/2/entities/:id`), and `aleph_get_entity_markdown` (full Email Markdown or Pages plain text when structured output was truncated); keep structured response behavior documented in `README.md` and `prompts/`.

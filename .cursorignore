@@ -1,0 +1,19 @@
+# Dependencies & build
+node_modules/
+dist/
+
+# Secrets & local env
+.env
+.env.*
+!.env.example
+
+# Logs & coverage
+*.log
+logs/
+coverage/
+
+# OS & tooling noise
+.DS_Store
+
+# Git internals (not useful for code context)
+.git/

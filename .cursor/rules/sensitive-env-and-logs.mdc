@@ -1,0 +1,12 @@
+---
+description: Keep secrets, .env, and log files out of LLM context and responses
+alwaysApply: true
+---
+
+# Secrets, environment files, and logs
+
+- **Do not read, open, search inside, or attach** project files under `logs/` or any `*.log` file, or local env files (`.env`, `.env.local`, `.env.*` except documented examples like `.env.example`). These paths are excluded from normal tooling context for a reason.
+- **Never paste, quote, or summarize** the contents of `.env` or log files in chat, plans, commits, or generated docs—even if the user @-mentions them.
+- **API keys, session headers, Authorization values, and response bodies** from OpenAleph or e2e runs are sensitive. Do not echo them; refer only to variable *names* from `.env.example` when explaining configuration.
+- If configuration is needed to debug, point to **`.env.example`** and name the relevant `ALEPH_*` / `ALEPH_E2E_*` variables without reading the user’s actual `.env`.
+- If the user pastes secrets into chat, remind them to rotate credentials and avoid pasting secrets in future; do not repeat the secret back in full.
