@@ -109,6 +109,18 @@ All of the above are normalized and merged into **`q`** as `(schemata:Email OR s
 
 This MCP’s prompts assume **document and file-body retrieval** uses the **`Pages`** schema. Prefer **`schemata:Pages`** or **`schema:Pages`** when searching for PDFs, office documents, and similar indexed files—unless you know your OpenAleph instance labels them differently.
 
+### Per-page text on `Pages` documents
+
+FollowTheMoney stores the extracted **text of each page** on child **`Page`** entities (one per page), not on the `Pages` parent. OpenAleph’s `/api/2/entities/:id` single-entity endpoint also **excludes the indexed `text` field** (`excludes = ["text", "numeric.*"]`), so the parent’s `properties.bodyText` is typically empty even when the document is fully OCR’d.
+
+**Prefer `aleph_get_entity_markdown`** for body text — it transparently fetches and concatenates child pages. If you’re driving raw `aleph_search` yourself, the query the MCP uses internally is:
+
+```text
+filter:schema=Page & filter:properties.document=<pages_id>
+```
+
+(HTTP filters, **not** a Lucene `q` clause — `properties.document` is analyzed, so phrase-matching the dotted child id against it won’t work.) Sort the returned children by **`properties.index`** and read `properties.bodyText` (falling back to `indexText` / `rawText`).
+
 ## Collection / dataset
 
 In the query string:

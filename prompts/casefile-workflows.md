@@ -1,6 +1,8 @@
 # Scenario prompts — investigations (combine with `detailed.md` or `short.md`)
 
-Paste one block as a **user** or **system** supplement when starting a focused task. All assume **`aleph_search`** + **`aleph_get_entity`** are available.
+Paste one block as a **user** or **system** supplement when starting a focused task. All assume **`aleph_search`**, **`aleph_get_entity`**, and **`aleph_get_entity_markdown`** are available.
+
+> **Reading full document text:** `aleph_get_entity` returns **metadata** for a `Pages` entity but its `bodyText` is usually empty — OpenAleph’s single-entity endpoint excludes the indexed text field. For the **actual extracted text of a PDF/document**, call **`aleph_get_entity_markdown`**; it auto-aggregates per-page text from child `Page` entities (flagged with `bodyTextFromChildren: true`, `childPageCount`).
 
 ---
 
@@ -21,7 +23,7 @@ Paste one block as a **user** or **system** supplement when starting a focused t
 
 1. Use quoted name variants + **`NOT`** common false positives if needed.  
 2. Add **`schema:Person`** only when you want profile-like entities; use free-text search when you want **mentions inside documents**. When you need **document or file hits**, include **`schemata:Pages`** (or **`schema:Pages`**)—use **`Pages`** for all document retrieval in this setup.  
-3. For promising **`Pages`** / **`Email`** rows, **`aleph_get_entity`** with **`includeContentFields: false`** first; escalate to full text only if snippets are insufficient.
+3. For promising **`Pages`** / **`Email`** rows, **`aleph_get_entity`** with **`includeContentFields: false`** first; escalate to full text with **`aleph_get_entity_markdown`** (Email Markdown, Pages plain text auto-aggregated from child pages) when snippets are insufficient.
 
 ---
 
@@ -56,7 +58,7 @@ For each material fact, output:
 - **Schema**  
 - **`link`** — the **exact** OpenAleph UI URL from tool output only (markdown link in deliverables); never substitute or supplement with non-OpenAleph URLs  
 - **Collection** (if present)  
-- **Short verbatim excerpt** only if returned with **`includeContentFields`** or preview; otherwise describe the field (e.g. “title”, “date”) without fabricating text.
+- **Short verbatim excerpt** — for `Pages` / `Email` quote from **`aleph_get_entity_markdown`** (full, untruncated); for structured fields, use the preview from search / `aleph_get_entity`. Never fabricate text.
 
 ---
 
