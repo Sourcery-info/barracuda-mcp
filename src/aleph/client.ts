@@ -1,6 +1,14 @@
 import type { AppConfig } from "../config.js";
 import { clampSearchLimit } from "../config.js";
 
+/**
+ * Schema filters can be either a single schema name ("Email"), a comma/space
+ * separated string ("Email,Pages"), or an array (["Email", "Pages"]). Multiple
+ * schemas are combined with OR because `filter:schema` / `filter:schemata`
+ * only accept a single value per call on most OpenAleph deployments.
+ */
+export type SchemaFilterInput = string | string[];
+
 export type SearchQueryInput = {
   q: string;
   limit?: number;
@@ -8,8 +16,8 @@ export type SearchQueryInput = {
   collectionId?: string;
   facets?: string[];
   extraFilters?: Record<string, string>;
-  schema?: string;
-  schemata?: string;
+  schema?: SchemaFilterInput;
+  schemata?: SchemaFilterInput;
   /** Ask OpenAleph for ES highlight fragments on each hit (`highlight=true`). */
   highlight?: boolean;
   /** Maps to `highlight_count` (default on server is often 3). */
@@ -17,6 +25,33 @@ export type SearchQueryInput = {
   /** Maps to `highlight_length` (fragment size). */
   highlightLength?: number;
 };
+
+/**
+ * Normalize a schema filter argument to a de-duplicated list of trimmed schema
+ * names. Accepts an array, a single name, or a comma/whitespace separated
+ * string like `"Email,Pages"` or `"Email, Pages"`.
+ */
+export function normalizeSchemaList(
+  value: SchemaFilterInput | undefined
+): string[] {
+  if (value === undefined) return [];
+  const raw = Array.isArray(value) ? value : [value];
+  const out: string[] = [];
+  for (const item of raw) {
+    if (typeof item !== "string") continue;
+    for (const part of item.split(/[,\s]+/)) {
+      const trimmed = part.trim();
+      if (trimmed && !out.includes(trimmed)) out.push(trimmed);
+    }
+  }
+  return out;
+}
+
+function buildSchemaOrClause(field: "schema" | "schemata", names: string[]): string {
+  if (names.length === 0) return "";
+  if (names.length === 1) return `${field}:${names[0]}`;
+  return names.map((name) => `${field}:${name}`).join(" OR ");
+}
 
 export class AlephHttpError extends Error {
   constructor(
@@ -67,9 +102,13 @@ export class AlephClient {
   buildSearchUrl(input: SearchQueryInput): string {
     const params = new URLSearchParams();
 
+    const schemataList = normalizeSchemaList(input.schemata);
+    const schemaList = normalizeSchemaList(input.schema);
+
     let q = input.q;
-    if (input.schemata?.trim()) {
-      q = mergeLuceneClauseIntoQ(q, `schemata:${input.schemata.trim()}`);
+    const schemataClause = buildSchemaOrClause("schemata", schemataList);
+    if (schemataClause) {
+      q = mergeLuceneClauseIntoQ(q, schemataClause);
     }
 
     const limit = clampSearchLimit(input.limit);
@@ -81,8 +120,11 @@ export class AlephClient {
     if (input.collectionId) {
       params.set("filter:collection_id", input.collectionId);
     }
-    if (input.schema) {
-      params.set("filter:schema", input.schema);
+    if (schemaList.length === 1) {
+      params.set("filter:schema", schemaList[0]!);
+    } else if (schemaList.length > 1) {
+      // `filter:schema` only accepts a single value; OR the names inside q.
+      q = mergeLuceneClauseIntoQ(q, buildSchemaOrClause("schema", schemaList));
     }
 
     params.set("q", q);

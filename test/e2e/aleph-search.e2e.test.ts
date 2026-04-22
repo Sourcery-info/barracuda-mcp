@@ -4,8 +4,10 @@ import { describe, expect, it } from "vitest";
 import { AlephClient } from "../../src/aleph/client.js";
 import { loadConfig } from "../../src/config.js";
 import { runAlephGetEntityMarkdownTool } from "../../src/mcp/alephGetEntityMarkdown.js";
+import { runAlephSearchTool } from "../../src/mcp/alephSearch.js";
 import {
   e2eSearchQueryFromEnv,
+  e2eSearchShapingFromEnv,
   entityIdsFromSearchResults,
   parseE2eFetchTopN,
 } from "./e2eSearchEnv.js";
@@ -23,11 +25,13 @@ describe("Aleph search against configured instance (e2e)", () => {
     const logPath = join(logsDir, `aleph-e2e-search-${isoFilenameTimestamp()}.log`);
 
     const searchInput = e2eSearchQueryFromEnv(process.env);
+    const shapingArgs = e2eSearchShapingFromEnv(process.env);
     const paramsLine = `e2e search params: ${JSON.stringify(searchInput)}\n`;
+    const shapingLine = `e2e search shaping: ${JSON.stringify(shapingArgs)}\n`;
 
     await appendFile(
       logPath,
-      `Aleph e2e search — ${config.alephOrigin}\nStarted ${new Date().toISOString()}\n${paramsLine}\n`,
+      `Aleph e2e search — ${config.alephOrigin}\nStarted ${new Date().toISOString()}\n${paramsLine}${shapingLine}\n`,
       "utf8"
     );
 
@@ -40,6 +44,20 @@ describe("Aleph search against configured instance (e2e)", () => {
     const rec = data as Record<string, unknown>;
     expect(typeof rec.total).toBe("number");
     expect(Array.isArray(rec.results)).toBe(true);
+
+    await appendFile(
+      logPath,
+      `\n--- e2e: runAlephSearchTool (structured shaping) ---\n`,
+      "utf8"
+    );
+    const toolResult = await runAlephSearchTool(client, {
+      ...searchInput,
+      ...shapingArgs,
+    });
+    expect(toolResult.isError).toBeFalsy();
+    if (toolResult.content?.[0]?.type === "text") {
+      await appendFile(logPath, `${toolResult.content[0].text}\n`, "utf8");
+    }
 
     const fetchTopN = parseE2eFetchTopN(process.env);
     const entityIds = entityIdsFromSearchResults(data, fetchTopN);

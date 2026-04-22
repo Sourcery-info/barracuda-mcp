@@ -94,6 +94,17 @@ numeric.rowCount:>99
 
 In **`aleph_search`**, you can pass tool arg **`schema`** (HTTP `filter:schema`) or **`schemata`** (merged into **`q`** as `schemata:Name`, not as `filter:schemata`, for server compatibility). You can still write `schemata:…` or `schema:…` directly inside **`q`** if you prefer.
 
+### Multiple schemas
+
+Both **`schema`** and **`schemata`** accept **one name**, an **array**, or a **comma- or space-separated string**:
+
+```json
+{ "schemata": "Email,Pages" }
+{ "schemata": ["Email", "Pages"] }
+```
+
+All of the above are normalized and merged into **`q`** as `(schemata:Email OR schemata:Pages)` so OpenAleph returns hits from **either** schema. **Do not** pass a bare `"Email,Pages"` expecting OpenAleph to match it as a single schema name—there is no such schema. For single-value **`schema`** the tool still uses HTTP **`filter:schema`**; multi-value **`schema`** is OR-merged into **`q`** because `filter:schema` only accepts one value.
+
 ### barracuda-mcp: documents and files
 
 This MCP’s prompts assume **document and file-body retrieval** uses the **`Pages`** schema. Prefer **`schemata:Pages`** or **`schema:Pages`** when searching for PDFs, office documents, and similar indexed files—unless you know your OpenAleph instance labels them differently.

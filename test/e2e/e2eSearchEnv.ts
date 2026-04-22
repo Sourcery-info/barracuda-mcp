@@ -1,39 +1,13 @@
 import type { SearchQueryInput } from "../../src/aleph/client.js";
 import { clampSearchLimit } from "../../src/config.js";
-
-function parseNonNegativeInt(raw: string | undefined, fallback: number): number {
-  if (raw === undefined || raw.trim() === "") return fallback;
-  const v = Number.parseInt(raw, 10);
-  if (!Number.isFinite(v) || v < 0) return fallback;
-  return v;
-}
-
-function parseCommaSeparatedList(raw: string | undefined): string[] | undefined {
-  if (!raw?.trim()) return undefined;
-  const parts = raw
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  return parts.length ? parts : undefined;
-}
-
-function parseExtraFiltersJson(raw: string | undefined): Record<string, string> | undefined {
-  const s = raw?.trim();
-  if (!s) return undefined;
-  try {
-    const o = JSON.parse(s) as unknown;
-    if (!o || typeof o !== "object" || Array.isArray(o)) return undefined;
-    const out: Record<string, string> = {};
-    for (const [k, v] of Object.entries(o)) {
-      if (!k.trim()) continue;
-      if (typeof v === "string") out[k] = v;
-      else if (typeof v === "number" || typeof v === "boolean") out[k] = String(v);
-    }
-    return Object.keys(out).length ? out : undefined;
-  } catch {
-    return undefined;
-  }
-}
+import {
+  parseCommaSeparatedList,
+  parseJsonStringMap,
+  parseNonNegativeInt,
+  parseOptionalPositiveInt,
+  parseShapingFromEnv,
+  type E2eShapingArgs,
+} from "./envParsers.js";
 
 /**
  * Build {@link SearchQueryInput} from `ALEPH_E2E_SEARCH_*` environment variables (see `.env.example`).
@@ -55,26 +29,27 @@ export function e2eSearchQueryFromEnv(env: NodeJS.ProcessEnv): SearchQueryInput 
   const schema = env.ALEPH_E2E_SEARCH_SCHEMA?.trim() || undefined;
   const schemata = env.ALEPH_E2E_SEARCH_SCHEMATA?.trim() || undefined;
   const facets = parseCommaSeparatedList(env.ALEPH_E2E_SEARCH_FACETS);
-  const extraFilters = parseExtraFiltersJson(env.ALEPH_E2E_SEARCH_EXTRA_FILTERS);
+  const extraFilters = parseJsonStringMap(env.ALEPH_E2E_SEARCH_EXTRA_FILTERS);
 
   const highlight =
     env.ALEPH_E2E_SEARCH_HIGHLIGHT?.trim().toLowerCase() === "false"
       ? false
       : true;
-  const highlightCountRaw = env.ALEPH_E2E_SEARCH_HIGHLIGHT_COUNT?.trim();
-  let highlightCount: number | undefined;
-  if (highlightCountRaw !== undefined && highlightCountRaw !== "") {
-    const n = Number.parseInt(highlightCountRaw, 10);
-    if (Number.isFinite(n) && n > 0) {
-      highlightCount = Math.min(n, 100);
-    }
-  }
+  const highlightCount = parseOptionalPositiveInt(
+    env.ALEPH_E2E_SEARCH_HIGHLIGHT_COUNT,
+    { max: 100 }
+  );
+  const highlightLength = parseOptionalPositiveInt(
+    env.ALEPH_E2E_SEARCH_HIGHLIGHT_LENGTH,
+    { max: 50_000 }
+  );
 
   return {
     q,
     limit,
     highlight,
     ...(highlightCount !== undefined ? { highlightCount } : {}),
+    ...(highlightLength !== undefined ? { highlightLength } : {}),
     ...(offset !== undefined ? { offset } : {}),
     ...(collectionId ? { collectionId } : {}),
     ...(schema ? { schema } : {}),
@@ -82,6 +57,18 @@ export function e2eSearchQueryFromEnv(env: NodeJS.ProcessEnv): SearchQueryInput 
     ...(facets ? { facets } : {}),
     ...(extraFilters ? { extraFilters } : {}),
   };
+}
+
+/**
+ * Shaping options for the structured `aleph_search` response. See
+ * {@link parseShapingFromEnv} — this reads the `ALEPH_E2E_SEARCH_*` prefix.
+ */
+export type E2eSearchShapingArgs = E2eShapingArgs;
+
+export function e2eSearchShapingFromEnv(
+  env: NodeJS.ProcessEnv
+): E2eSearchShapingArgs {
+  return parseShapingFromEnv(env, "ALEPH_E2E_SEARCH_");
 }
 
 const DEFAULT_E2E_FETCH_TOP_N = 2;

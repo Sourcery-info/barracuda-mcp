@@ -44,14 +44,16 @@ export const alephSearchInputSchema = z.object({
       "Additional filters as key/value; each becomes filter:{key}=value (e.g. countries, mime_type)."
     ),
   schema: z
-    .string()
-    .optional()
-    .describe("Single schema filter (filter:schema)."),
-  schemata: z
-    .string()
+    .union([z.string(), z.array(z.string())])
     .optional()
     .describe(
-      "Restrict to this schema and its FtM descendants via `schemata:Name` merged into `q` (avoids brittle filter:schemata on some servers)."
+      "Schema filter (exact, no descendants). Accepts a single name (\"Email\"), a comma/space separated list (\"Email,Pages\"), or an array ([\"Email\",\"Pages\"]). Multiple names are OR-combined inside `q` because `filter:schema` takes only one value."
+    ),
+  schemata: z
+    .union([z.string(), z.array(z.string())])
+    .optional()
+    .describe(
+      "Schema filter including FtM descendants. Accepts a single name (\"Pages\"), a comma/space separated list (\"Email,Pages\"), or an array ([\"Email\",\"Pages\"]). Multiple names are merged into `q` as `(schemata:A OR schemata:B)` (avoids brittle filter:schemata on some servers)."
     ),
   highlight: z
     .boolean()
