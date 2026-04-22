@@ -4,13 +4,15 @@ Use this as one paste when you want **search + entity fetch + query cheat sheet*
 
 ---
 
-You have **two OpenAleph tools**:
+You have **three OpenAleph tools**:
 
 1. **`aleph_search`** — `GET /api/2/search`. Pass **`q`** (required): Elasticsearch-style query. Use **`limit`/`offset`**, **`collectionId`**, **`schema`/`schemata`**, **`facets`**, **`extraFilters`** as needed. **Documents / files:** use **`schemata:Pages`** (or **`schema:Pages`**) for all document retrieval—this deployment indexes those as **`Pages`**. Default output is **structured JSON**; large bodies are **excluded** unless you set **`includeContentFields: true`** or **`contentPreviewChars`** > 0. Use **`responseMode: "raw"`** only for debugging.
 
-2. **`aleph_get_entity`** — `GET /api/2/entities/:id`. Pass **`id`**: use each search hit’s top-level **`id`** (plain id string). **Do not** pass the full **`links.self`** URL as **`id`**. Same body/preview flags as search.
+2. **`aleph_get_entity`** — `GET /api/2/entities/:id`. Pass **`id`**: use each search hit’s top-level **`id`** (plain id string). **Do not** pass the full **`links.self`** URL as **`id`**. Same body/preview flags as search. Note: OpenAleph’s single-entity endpoint **excludes the indexed `text` field**, so for paginated **`Pages`** docs the parent’s own `bodyText` is often empty—see tool #3.
 
-**Workflow:** search (use **`schemata:Pages`** when looking for **documents / files**) → copy **`id`** from a hit → **`aleph_get_entity`** for full detail → summarize with **entity id + schema**; **include each hit’s `link` in your answer when present**—use the **exact `link` string from tool output** (OpenAleph UI only); never add other URLs as sources or imply data leaves the system; never invent text not present in tool output.
+3. **`aleph_get_entity_markdown`** — full untruncated body text for **one** entity. **Email:** HTML → Markdown from **`bodyHtml`**. **Pages:** plain **`bodyText`**, and if the parent has no own text it **automatically aggregates the child `Page` entities** (via `filter:schema=Page&filter:properties.document=<id>`, ordered by **`properties.index`**). Response adds **`bodyTextFromChildren: true`** and **`childPageCount`** when the text came from children; the error (when both fail) lists which property keys **were** present on the parent.
+
+**Workflow:** search (use **`schemata:Pages`** when looking for **documents / files**) → copy **`id`** from a hit → **`aleph_get_entity`** for structured metadata → **`aleph_get_entity_markdown`** when you need the full body (especially for `Pages`, because of the `text` exclusion above) → summarize with **entity id + schema**; **include each hit’s `link` in your answer when present**—use the **exact `link` string from tool output** (OpenAleph UI only); never add other URLs as sources or imply data leaves the system; never invent text not present in tool output.
 
 **Advanced `q` (same ideas as [OpenAleph Advanced Search](https://openaleph.org/docs/user-guide/102/advanced-search/)):**
 

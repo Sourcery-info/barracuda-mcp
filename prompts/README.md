@@ -5,8 +5,8 @@ Use these as **Cursor Rules**, **project instructions**, or paste into a pinned 
 | Tool | Purpose |
 |------|---------|
 | `aleph_search` | Search the instance (`GET /api/2/search`). |
-| `aleph_get_entity` | Load one entity by id (`GET /api/2/entities/:id`)—documents, emails, people, etc. |
-| `aleph_get_entity_markdown` | Full untruncated body (Email: Markdown from `bodyHtml`; Pages: plain `bodyText`). |
+| `aleph_get_entity` | Load one entity by id (`GET /api/2/entities/:id`) for **metadata** — documents, emails, people, etc. Note: for `Pages` the upstream endpoint excludes the indexed `text` field, so `bodyText` here is often empty. |
+| `aleph_get_entity_markdown` | **Full untruncated body text** for one entity. Email: Markdown from `bodyHtml`. Pages: plain `bodyText` — **auto-aggregated from child `Page` entities** when the parent has none (response flags `bodyTextFromChildren: true`, `childPageCount`). |
 
 ## Files
 

@@ -42,16 +42,25 @@ Calls **`GET /api/2/entities/:id`**. Use when you already have an **entity `id`*
 - Pass **`id`** (required).
 - Same response-shaping flags as search (`includeContentFields`, `contentPreviewChars`, `responseMode`, etc.).
 - Use this to **read a specific document or email** after you find it in search—do not guess ids.
+- **Caveat for `Pages`:** OpenAleph’s single-entity endpoint **excludes the indexed `text` field** (`excludes = ["text", "numeric.*"]` in the upstream view), so for paginated docs the parent’s own `bodyText` / `indexText` is **often empty** even though the document is fully indexed. For full body text on a `Pages` entity, use **`aleph_get_entity_markdown`** (it goes back through search to aggregate children — see below).
 
 ### `aleph_get_entity_markdown`
 
 Calls **`GET /api/2/entities/:id`** and returns **full** body text (no length cap on the returned string except a safety limit on huge inputs). **Email:** **`bodyMarkdown`** from **`bodyHtml`**. **Pages:** plain **`bodyText`**. Use when **`truncatedBody`** is true or you need the entire text. Response includes character counts and **`htmlSourceTruncated`** when input was cut at the safety limit. Optional **`includeRaw`** adds the raw Aleph entity JSON.
 
+**Pages child fallback (automatic):** FollowTheMoney stores per-page text on child **`Page`** entities — a paginated **`Pages`** parent typically has empty `properties.bodyText` / `indexText` / `rawText`. When that happens this tool automatically issues:
+
+```text
+GET /api/2/search?q=*&filter:schema=Page&filter:properties.document=<id>&limit=500
+```
+
+sorts the children by **`properties.index`**, and concatenates their **`bodyText`** (falling back to `indexText` / `rawText` per child) into one string. When that path is taken the response adds **`bodyTextFromChildren: true`** and **`childPageCount`**. If both the parent and the child search are empty, the error lists the property keys that **were** present on the parent plus the exact child query that came back empty — that usually points to an ingest/OCR gap or an access-scope issue rather than a tool bug.
+
 ## Workflow
 
 1. **Clarify** what the user is looking for (people, companies, docs, timeframe, jurisdiction, collection).
 2. **Search** with a precise `q`; add `collectionId` or **`schemata:Pages`** (or `schema:Pages`) when the user wants **documents / file content**; add other `schema` / `schemata` filters when it narrows safely.
-3. **Fetch** selected hits with `aleph_get_entity` when you need full text or stable detail; use **`aleph_get_entity_markdown`** when **`truncatedBody`** is true on an Email or Pages hit and you need the full body text.
+3. **Fetch** selected hits with `aleph_get_entity` for metadata. For **full body text** — especially on `Pages` (where the single-entity endpoint excludes `text`) — call **`aleph_get_entity_markdown`**; it handles Email HTML → Markdown and the `Pages` → child `Page` aggregation transparently.
 4. **Summarize** in plain language; attribute claims to **entity id + schema**; include **`link`** URLs for sources you cite when the tool returned them; quote short snippets only when present in tool output.
 5. If results are empty or irrelevant, **rewrite `q`** (synonyms, phrases, field filters) rather than repeating blindly.
 

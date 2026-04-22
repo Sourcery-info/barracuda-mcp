@@ -467,7 +467,7 @@ function withContentHandling(
   return { normalized };
 }
 
-function parseSearchResults(raw: unknown): RawEntity[] {
+export function parseSearchResults(raw: unknown): RawEntity[] {
   const obj = (raw ?? {}) as UnknownRecord;
   return Array.isArray(obj.results) ? (obj.results as RawEntity[]) : [];
 }
@@ -676,35 +676,145 @@ export function getEmailBodyMarkdownUntruncated(entity: RawEntity): {
   };
 }
 
-/**
- * Full **Page** / **Pages** `bodyText` (plain), no response length cap (same safety cap on input size as Email HTML).
- */
-export function getPagesBodyTextUntruncated(entity: RawEntity): {
+/** Collapse whitespace and pick the first `bodyText` / `indexText` / `rawText` we find. */
+function pickPlainTextFromPageProperties(
+  props: Record<string, unknown>
+): string | null {
+  return (
+    flattenBodyHtmlStrings(props.bodyText) ??
+    flattenBodyHtmlStrings(props.indexText) ??
+    flattenBodyHtmlStrings(props.rawText)
+  );
+}
+
+function firstNumberFromProperty(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const n = Number.parseInt(value, 10);
+    if (Number.isFinite(n)) return n;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const n = firstNumberFromProperty(item);
+      if (Number.isFinite(n)) return n;
+    }
+  }
+  return Number.POSITIVE_INFINITY;
+}
+
+function finalizePagesBodyTextFromRaw(
+  raw: string,
+  meta: { sourcedFromChildren: boolean; pageCount: number | null }
+): PagesBodyTextResult {
+  const htmlSourceTruncated = raw.length > MAX_HTML_INPUT_CHARS_FOR_TURNDOWN;
+  const slice = htmlSourceTruncated
+    ? safeTruncatePlainTextForMarkdown(raw, MAX_HTML_INPUT_CHARS_FOR_TURNDOWN)
+    : raw;
+  const text = slice.replace(/\r\n/g, "\n");
+  return {
+    text,
+    bodyTextFullChars: text.length,
+    htmlSourceTruncated,
+    sourcedFromChildren: meta.sourcedFromChildren,
+    pageCount: meta.pageCount,
+  };
+}
+
+export type PagesBodyTextResult = {
   text: string;
   bodyTextFullChars: number;
   htmlSourceTruncated: boolean;
-} | null {
+  /** True when the text was aggregated from child `Page` entities. */
+  sourcedFromChildren: boolean;
+  /** Number of child pages concatenated (null when text came from the entity itself). */
+  pageCount: number | null;
+};
+
+/**
+ * Fetches child `Page` entities for a `Pages` parent and returns them.
+ * `null`/empty means "no children available" (e.g. the entity is a `Page` itself,
+ * has no children, or the fetcher errored).
+ */
+export type PagesChildrenFetcher = (
+  pagesId: string
+) => Promise<RawEntity[] | null>;
+
+/**
+ * Full **Page** / **Pages** `bodyText` (plain), no response length cap (same safety cap on input size as Email HTML).
+ *
+ * Synchronous form — only looks at the entity's own properties. Use
+ * {@link getPagesBodyTextWithChildren} when a search client is available: for
+ * paginated **`Pages`** docs OpenAleph stores each page's text on a child
+ * **`Page`** entity, so the parent often has empty `bodyText`/`indexText`.
+ */
+export function getPagesBodyTextUntruncated(
+  entity: RawEntity
+): PagesBodyTextResult | null {
   const schemaNorm = normalizeSchema(entity.schema);
   if (!isPageOrPagesSchema(schemaNorm)) return null;
   const props =
     entity.properties && typeof entity.properties === "object"
       ? entity.properties
       : {};
-  let raw: string | null = flattenBodyHtmlStrings(props.bodyText);
-  if (!raw) raw = flattenBodyHtmlStrings(props.indexText);
-  if (!raw) raw = flattenBodyHtmlStrings(props.rawText);
+  const raw = pickPlainTextFromPageProperties(props);
   if (!raw) return null;
-  const htmlSourceTruncated = raw.length > MAX_HTML_INPUT_CHARS_FOR_TURNDOWN;
-  const slice = htmlSourceTruncated
-    ? safeTruncatePlainTextForMarkdown(raw, MAX_HTML_INPUT_CHARS_FOR_TURNDOWN)
-    : raw;
-  const text = slice.replace(/\r\n/g, "\n");
-  if (!text) return null;
-  return {
-    text,
-    bodyTextFullChars: text.length,
-    htmlSourceTruncated,
-  };
+  const result = finalizePagesBodyTextFromRaw(raw, {
+    sourcedFromChildren: false,
+    pageCount: null,
+  });
+  if (!result.text) return null;
+  return result;
+}
+
+/**
+ * Like {@link getPagesBodyTextUntruncated} but, for a `Pages` parent with no
+ * own text, asks `fetchChildren` for child `Page` entities and concatenates
+ * their `bodyText` in `properties.index` order.
+ */
+export async function getPagesBodyTextWithChildren(
+  entity: RawEntity,
+  fetchChildren: PagesChildrenFetcher
+): Promise<PagesBodyTextResult | null> {
+  const direct = getPagesBodyTextUntruncated(entity);
+  if (direct) return direct;
+
+  const schemaNorm = normalizeSchema(entity.schema);
+  if (schemaNorm.toLowerCase() !== "pages") return null;
+
+  const id = getCanonicalEntityId(entity);
+  if (!id) return null;
+
+  let children: RawEntity[] | null = null;
+  try {
+    children = await fetchChildren(id);
+  } catch {
+    return null;
+  }
+  if (!children || children.length === 0) return null;
+
+  const ordered = children
+    .map((child) => {
+      const props =
+        child.properties && typeof child.properties === "object"
+          ? (child.properties as Record<string, unknown>)
+          : {};
+      return {
+        index: firstNumberFromProperty(props.index),
+        text: pickPlainTextFromPageProperties(props),
+      };
+    })
+    .filter((c): c is { index: number; text: string } => !!c.text)
+    .sort((a, b) => a.index - b.index);
+
+  if (ordered.length === 0) return null;
+
+  const raw = ordered.map((p) => p.text).join("\n\n");
+  const result = finalizePagesBodyTextFromRaw(raw, {
+    sourcedFromChildren: true,
+    pageCount: ordered.length,
+  });
+  if (!result.text) return null;
+  return result;
 }
 
 /**
