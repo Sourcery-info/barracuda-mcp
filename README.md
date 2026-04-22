@@ -184,7 +184,24 @@ Fetches **one entity by id** (`GET /api/2/entities/:id`) and returns **full** bo
 | `id` | string (required) | Entity id (**Email** with usable **`bodyHtml`**, or **Pages** with **`bodyText`**). |
 | `includeRaw` | boolean (optional) | Include Aleph’s JSON under `raw`. Default: `false`. |
 
-Successful responses are JSON with **`id`**, **`schema`**, and either Email fields (**`bodyMarkdown`**, **`bodyMarkdownFullChars`**, **`htmlSourceTruncated`**) or Pages fields (**`bodyText`**, **`bodyTextFullChars`**, **`htmlSourceTruncated`**). If there is no usable body, the tool returns MCP **`isError: true`** with an explanatory message.
+Successful responses are JSON with **`id`**, **`schema`**, and either Email fields (**`bodyMarkdown`**, **`bodyMarkdownFullChars`**, **`htmlSourceTruncated`**) or Pages fields (**`bodyText`**, **`bodyTextFullChars`**, **`htmlSourceTruncated`**). If there is no usable body, the tool returns MCP **`isError: true`** with an explanatory message that lists which property keys **were** present on the parent and the exact child-pages query that was tried — helpful for telling ingest gaps apart from access-scope problems.
+
+### Pages: automatic child-page aggregation
+
+OpenAleph’s `/api/2/entities/:id` handler for a single entity sets `excludes = ["text", "numeric.*"]`, so the parent of a paginated `Pages` document almost always has an empty `properties.bodyText`. FollowTheMoney keeps per-page text on child `Page` entities (`Page:bodyText`, `Page:index`, `Page:document → <parent_id>`).
+
+When the parent has no own `bodyText` / `indexText` / `rawText`, this tool transparently issues:
+
+```text
+GET /api/2/search?q=*&filter:schema=Page&filter:properties.document=<id>&limit=500
+```
+
+sorts the returned children by `properties.index`, and concatenates their `bodyText` (falling back to `indexText` / `rawText` per child). When that path is taken the response adds:
+
+- **`bodyTextFromChildren`**: `true`
+- **`childPageCount`**: number of pages concatenated
+
+HTTP filters are used (not a Lucene `q:` clause) because `properties.document` is analyzed/tokenized — phrase-matching the dotted child id against it does **not** work; exact filter-term matching does.
 
 ### API references
 
