@@ -11,7 +11,7 @@ Calls OpenAleph **`GET /api/2/search`**. Pass at least **`q`** (Elasticsearch / 
 - **`q`** (required): Keywords, `field:value`, phrases in quotes, boolean operators—see `advanced-openaleph-search.md` in this folder or [OpenAleph Advanced Search](https://openaleph.org/docs/user-guide/102/advanced-search/).
 - **`limit` / `offset`**: Pagination; prefer modest `limit` (e.g. 10–50) unless the user needs exhaustive lists.
 - **`collectionId`**: Restrict to one investigation/dataset when known.
-- **`schema` / `schemata`**: Restrict entity types (e.g. `Pages`, `Person`, `Email`).
+- **`schema` / `schemata`**: Restrict entity types (e.g. `Pages`, `Person`, `Email`). Accepts a single name (`"Email"`), an **array** (`["Email", "Pages"]`), or a **comma-separated string** (`"Email,Pages"`)—multiple names are OR-combined into the query automatically, so never pass a bare `"Email,Pages"` value expecting OpenAleph to match it as one schema.
 - **Documents and file bodies:** Use **`Pages`** / **`schemata:Pages`** for the file entity. **Per-page text** often lives on **`Page`** entities (filter e.g. `properties.document` + `properties.index`); this MCP surfaces **`bodyText`** for both **`Page`** and **`Pages`**.
 - **`facets`**: Ask for facet buckets (e.g. languages, countries)—when useful for exploration.
 - **`extraFilters`**: Additional `filter:{name}` pairs the API accepts.

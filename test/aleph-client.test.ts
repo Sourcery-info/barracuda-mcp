@@ -60,6 +60,50 @@ describe("AlephClient", () => {
     expect(new URL(url).searchParams.get("q")).toBe("schemata:Document");
   });
 
+  it("OR-combines comma-separated schemata into q", () => {
+    const client = new AlephClient(testConfig());
+    const url = client.buildSearchUrl({ q: "penguin", schemata: "Email,Pages" });
+    const u = new URL(url);
+    expect(u.searchParams.get("q")).toBe(
+      "(penguin) AND (schemata:Email OR schemata:Pages)"
+    );
+    expect(u.searchParams.get("filter:schemata")).toBeNull();
+  });
+
+  it("OR-combines array schemata into q and trims whitespace", () => {
+    const client = new AlephClient(testConfig());
+    const url = client.buildSearchUrl({
+      q: "penguin",
+      schemata: [" Email ", "Pages"],
+    });
+    expect(new URL(url).searchParams.get("q")).toBe(
+      "(penguin) AND (schemata:Email OR schemata:Pages)"
+    );
+  });
+
+  it("uses filter:schema for a single schema and OR-combines multiple into q", () => {
+    const client = new AlephClient(testConfig());
+    const singleUrl = new URL(
+      client.buildSearchUrl({ q: "foo", schema: "Email" })
+    );
+    expect(singleUrl.searchParams.get("filter:schema")).toBe("Email");
+    expect(singleUrl.searchParams.get("q")).toBe("foo");
+
+    const multiUrl = new URL(
+      client.buildSearchUrl({ q: "foo", schema: "Email, Pages" })
+    );
+    expect(multiUrl.searchParams.get("filter:schema")).toBeNull();
+    expect(multiUrl.searchParams.get("q")).toBe(
+      "(foo) AND (schema:Email OR schema:Pages)"
+    );
+  });
+
+  it("ignores empty schema entries from comma-separated input", () => {
+    const client = new AlephClient(testConfig());
+    const url = client.buildSearchUrl({ q: "foo", schemata: " , , " });
+    expect(new URL(url).searchParams.get("q")).toBe("foo");
+  });
+
   it("buildEntityUrl encodes entity id for path", () => {
     const client = new AlephClient(testConfig());
     expect(client.buildEntityUrl("abc/def")).toBe(

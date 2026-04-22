@@ -13,8 +13,10 @@
     "dev": "node --import tsx src/index.ts",
     "test": "vitest run",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:e2e:entity": "vitest run --config vitest.e2e.config.ts test/e2e/aleph-entity.e2e.test.ts",
     "test:watch": "vitest",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "e2e:entity": "tsx scripts/fetch-entity.ts"
   },
   "engines": {
     "node": ">=20"

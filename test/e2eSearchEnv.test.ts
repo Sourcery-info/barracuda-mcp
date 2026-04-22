@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   e2eSearchQueryFromEnv,
+  e2eSearchShapingFromEnv,
   entityIdsFromSearchResults,
   parseE2eFetchTopN,
 } from "./e2e/e2eSearchEnv.js";
@@ -28,6 +29,8 @@ describe("e2eSearchQueryFromEnv", () => {
       ALEPH_E2E_SEARCH_SCHEMATA: "Pages",
       ALEPH_E2E_SEARCH_FACETS: "languages, countries",
       ALEPH_E2E_SEARCH_EXTRA_FILTERS: '{"mime_type":"application/pdf"}',
+      ALEPH_E2E_SEARCH_HIGHLIGHT_COUNT: "15",
+      ALEPH_E2E_SEARCH_HIGHLIGHT_LENGTH: "300",
     });
     expect(q).toEqual({
       q: "invoice",
@@ -39,6 +42,59 @@ describe("e2eSearchQueryFromEnv", () => {
       facets: ["languages", "countries"],
       extraFilters: { mime_type: "application/pdf" },
       highlight: true,
+      highlightCount: 15,
+      highlightLength: 300,
+    });
+  });
+});
+
+describe("e2eSearchShapingFromEnv", () => {
+  it("returns an empty object when no shaping vars are set", () => {
+    expect(e2eSearchShapingFromEnv({})).toEqual({});
+  });
+
+  it("parses all supported shaping vars", () => {
+    expect(
+      e2eSearchShapingFromEnv({
+        ALEPH_E2E_SEARCH_RESPONSE_MODE: "raw",
+        ALEPH_E2E_SEARCH_INCLUDE_RAW: "true",
+        ALEPH_E2E_SEARCH_INCLUDE_CONTENT_FIELDS: "true",
+        ALEPH_E2E_SEARCH_CONTENT_PREVIEW_CHARS: "500",
+        ALEPH_E2E_SEARCH_BODY_MARKDOWN_MAX_CHARS: "1000",
+        ALEPH_E2E_SEARCH_MAX_ARRAY_VALUES_PER_FIELD: "25",
+      })
+    ).toEqual({
+      responseMode: "raw",
+      includeRaw: true,
+      includeContentFields: true,
+      contentPreviewChars: 500,
+      bodyMarkdownMaxChars: 1000,
+      maxArrayValuesPerField: 25,
+    });
+  });
+
+  it("accepts common boolean spellings and ignores invalid values", () => {
+    expect(
+      e2eSearchShapingFromEnv({
+        ALEPH_E2E_SEARCH_INCLUDE_CONTENT_FIELDS: "FALSE",
+        ALEPH_E2E_SEARCH_INCLUDE_RAW: "maybe",
+        ALEPH_E2E_SEARCH_RESPONSE_MODE: "bogus",
+        ALEPH_E2E_SEARCH_CONTENT_PREVIEW_CHARS: "0",
+      })
+    ).toEqual({ includeContentFields: false, contentPreviewChars: 0 });
+  });
+
+  it("caps large numeric values at their safe maxima", () => {
+    expect(
+      e2eSearchShapingFromEnv({
+        ALEPH_E2E_SEARCH_CONTENT_PREVIEW_CHARS: "999999",
+        ALEPH_E2E_SEARCH_BODY_MARKDOWN_MAX_CHARS: "999999",
+        ALEPH_E2E_SEARCH_MAX_ARRAY_VALUES_PER_FIELD: "999",
+      })
+    ).toEqual({
+      contentPreviewChars: 50_000,
+      bodyMarkdownMaxChars: 50_000,
+      maxArrayValuesPerField: 200,
     });
   });
 });
