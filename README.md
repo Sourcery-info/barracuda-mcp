@@ -91,8 +91,8 @@ Searches OpenAleph using the same query model as the REST API (Elasticsearch-sty
 | `collectionId` | string (optional) | Sets `filter:collection_id`. |
 | `facets` | string[] (optional) | Repeated `facet` query params (e.g. `languages`, `countries`). |
 | `extraFilters` | object (optional) | Map of filter name → value; each becomes `filter:{name}`. |
-| `schema` | string (optional) | Sets `filter:schema`. |
-| `schemata` | string (optional) | Appends `schemata:…` to **`q`** (and does not send `filter:schemata`), for compatibility with servers that error on the filter param. |
+| `schema` | string \| string[] (optional) | Exact-schema filter. A single value becomes `filter:schema=X`. An **array** (`["Email","Pages"]`) or **comma/space-separated string** (`"Email,Pages"`) is OR-merged into **`q`** as `(schema:A OR schema:B)` because `filter:schema` only accepts one value. |
+| `schemata` | string \| string[] (optional) | Schema-with-descendants filter. Single / array / comma-separated are all accepted. Appends `schemata:X` (or `(schemata:A OR schemata:B …)`) to **`q`** — never sent as `filter:schemata`, which errors on some servers. |
 | `highlight` | boolean (optional) | Sends `highlight=true` / `false` to OpenAleph (Elasticsearch match snippets). Default: **`true`**. |
 | `highlightCount` | number (optional) | `highlight_count` — max fragments per hit (server default often **3**). |
 | `highlightLength` | number (optional) | `highlight_length` — fragment size in characters. |
@@ -216,6 +216,8 @@ HTTP filters are used (not a Lucene `q:` clause) because `properties.document` i
 ## Troubleshooting
 
 - **500 on search with `schemata`:** Older setups used `filter:schemata`; this MCP now adds **`schemata:YourSchema` inside `q`** instead (same idea as [Advanced Search](https://openaleph.org/docs/user-guide/102/advanced-search/)). Ensure the schema name exists in your FtM model (e.g. `Pages`, `Person`, `Email`).
+- **"No results" when searching multiple schemata:** Don't pass `"Email,Pages"` expecting it to match as a single schema — there is no such schema. Use the supported forms: `"schemata": ["Email","Pages"]` or `"schemata": "Email,Pages"` / `"Email Pages"`; both are OR-merged into `q` as `(schemata:Email OR schemata:Pages)`.
+- **Empty `bodyText` on a `Pages` entity from `aleph_get_entity`:** Expected — OpenAleph's `/api/2/entities/:id` handler uses `excludes = ["text", "numeric.*"]`, so the indexed text is stripped from the single-entity response. Call **`aleph_get_entity_markdown`** instead; it automatically aggregates the child `Page` entities (`filter:schema=Page&filter:properties.document=<id>`) and sets `bodyTextFromChildren: true` + `childPageCount` on the response. If *that* also comes back empty, the error lists which property keys were present on the parent and the exact child query that was tried — useful for distinguishing an ingest/OCR gap from an access-scope problem on the child pages' collection.
 - **401 / 403:** Invalid or expired API key, or role cannot browse/search the requested data.
 - **408 from tool:** Request timed out; increase `ALEPH_REQUEST_TIMEOUT_MS` or narrow the query.
 - **URL issues:** Only the **origin** of `ALEPH_BASE_URL` / `OPAL_HOST` is used; trailing paths are stripped.
@@ -223,17 +225,56 @@ HTTP filters are used (not a Lucene `q:` clause) because `properties.document` i
 ## Development
 
 ```bash
-npm test
-npm run lint
+npm test           # unit tests (vitest)
+npm run lint       # eslint + typescript-eslint
+npm run build      # type-check + emit to dist/
 ```
 
-### End-to-end search (real OpenAleph)
+### End-to-end (real OpenAleph)
+
+All e2e commands load [`.env`](.env.example) via `test/e2e/setup-env.ts`.
+
+| Command | What it does |
+|---------|--------------|
+| `npm run test:e2e` | Runs **all** e2e tests — includes the full search flow (and the targeted entity test when `ALEPH_E2E_ENTITY_ID` is set). |
+| `npm run test:e2e:entity` | Runs **only** the targeted entity test (`test/e2e/aleph-entity.e2e.test.ts`); skips cleanly when `ALEPH_E2E_ENTITY_ID` is unset. |
+| `npm run e2e:entity -- <id>` | Standalone CLI: fetches one entity by id via `aleph_get_entity` and `aleph_get_entity_markdown`, printing JSON to stdout. Flags: `--raw`, `--markdown` / `--no-markdown`, `-h`. Id on the CLI wins over `ALEPH_E2E_ENTITY_ID`. |
+
+#### Search tuning — `ALEPH_E2E_SEARCH_*`
+
+Control the **HTTP query** issued to `/api/2/search`:
+
+- **`ALEPH_E2E_SEARCH_Q`** (default `test`), **`ALEPH_E2E_SEARCH_LIMIT`** (default `5`), **`ALEPH_E2E_SEARCH_OFFSET`**, **`ALEPH_E2E_SEARCH_COLLECTION_ID`**
+- **`ALEPH_E2E_SEARCH_SCHEMA`** / **`ALEPH_E2E_SEARCH_SCHEMATA`** (single name, or comma/space-separated list — OR-combined)
+- **`ALEPH_E2E_SEARCH_FACETS`** (comma list), **`ALEPH_E2E_SEARCH_EXTRA_FILTERS`** (JSON object for additional `filter:*` pairs)
+- **`ALEPH_E2E_SEARCH_HIGHLIGHT`** (`true`/`false`, default `true`), **`ALEPH_E2E_SEARCH_HIGHLIGHT_COUNT`**, **`ALEPH_E2E_SEARCH_HIGHLIGHT_LENGTH`**
+- **`ALEPH_E2E_FETCH_TOP_N`** (default `2`, max `50`) — after search, `GET /api/2/entities/:id` for this many hits so logs include both search and per-entity responses
+
+Control the **structured-response shaping** of `runAlephSearchTool` (applied in addition to the raw `client.search` call, so the log has both):
+
+- **`ALEPH_E2E_SEARCH_RESPONSE_MODE`** (`structured` | `raw`)
+- **`ALEPH_E2E_SEARCH_INCLUDE_RAW`**, **`ALEPH_E2E_SEARCH_INCLUDE_CONTENT_FIELDS`**
+- **`ALEPH_E2E_SEARCH_CONTENT_PREVIEW_CHARS`**, **`ALEPH_E2E_SEARCH_BODY_MARKDOWN_MAX_CHARS`**, **`ALEPH_E2E_SEARCH_MAX_ARRAY_VALUES_PER_FIELD`**
+
+The e2e log header prints both the resolved search parameters and the shaping args actually applied.
+
+#### Targeted entity — `ALEPH_E2E_ENTITY_*`
+
+For reproducing a problem against **one specific document**:
+
+- **`ALEPH_E2E_ENTITY_ID`** — required to enable `npm run test:e2e:entity`; ignored (overridden) if you pass an id to `npm run e2e:entity --`.
+- **`ALEPH_E2E_ENTITY_FETCH_MARKDOWN`** (default `true`) — also run `aleph_get_entity_markdown` after `aleph_get_entity`.
+- **`ALEPH_E2E_ENTITY_RESPONSE_MODE`**, **`ALEPH_E2E_ENTITY_INCLUDE_RAW`**, **`ALEPH_E2E_ENTITY_INCLUDE_CONTENT_FIELDS`**, **`ALEPH_E2E_ENTITY_CONTENT_PREVIEW_CHARS`**, **`ALEPH_E2E_ENTITY_BODY_MARKDOWN_MAX_CHARS`**, **`ALEPH_E2E_ENTITY_MAX_ARRAY_VALUES_PER_FIELD`** — same semantics as their `SEARCH_` counterparts, applied to the entity tool.
+
+Example:
 
 ```bash
-npm run test:e2e
-```
+# Reproduce an issue against one document, including its full body text:
+npm run e2e:entity -- 858652c8362c662b8a8f2506b27559e5ce2cb277.ec6b1042b7bd113518dd690a83b9c52655d277b5
 
-Loads [`.env`](.env.example) via `test/e2e/setup-env.ts`. Set **`ALEPH_E2E_SEARCH_*`** variables (see [`.env.example`](.env.example)) to change **`q`**, **`limit`**, **`offset`**, **`collectionId`**, **`schema`**, **`schemata`**, **`facets`**, and optional **`ALEPH_E2E_SEARCH_EXTRA_FILTERS`** (JSON object for `filter:*` pairs). Set **`ALEPH_E2E_FETCH_TOP_N`** (default **2**, max **50**) to fetch that many search hits again via **`GET /api/2/entities/:id`** so logs include both search and per-entity responses. The e2e log header prints the resolved search parameters.
+# Or pin it in .env and run as a test:
+ALEPH_E2E_ENTITY_ID=<id> npm run test:e2e:entity
+```
 
 **Privacy:** Log files under `logs/` can contain API responses with sensitive content. They are listed in [`.cursorignore`](.cursorignore); do not commit them or paste them into shared chats.
 
