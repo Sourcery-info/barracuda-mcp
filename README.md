@@ -1,24 +1,59 @@
 # barracuda-mcp
 
-A [Model Context Protocol](https://modelcontextprotocol.io) server that exposes **OpenAleph** entity and document search via the official HTTP API (`GET /api/2/search`). It is intended for use from **Cursor** (stdio transport) and other MCP clients.
+[![npm version](https://img.shields.io/npm/v/barracuda-mcp.svg)](https://www.npmjs.com/package/barracuda-mcp)
+[![npm downloads](https://img.shields.io/npm/dm/barracuda-mcp.svg)](https://www.npmjs.com/package/barracuda-mcp)
+[![license](https://img.shields.io/npm/l/barracuda-mcp.svg)](./LICENSE)
+
+A [Model Context Protocol](https://modelcontextprotocol.io) server that exposes **OpenAleph** entity and document search via the official HTTP API (`GET /api/2/search`). It is intended for use from **LM Studio** (recommended), **Cursor**, **Claude Desktop**, and other MCP clients over **stdio**.
+
+[![Add to LM Studio](https://files.lmstudio.ai/deeplink/mcp-install-light.svg)](lmstudio://add_mcp?name=barracuda-mcp&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsImJhcnJhY3VkYS1tY3AiXSwiZW52Ijp7IkFMRVBIX0JBU0VfVVJMIjoiaHR0cHM6Ly95b3VyLWluc3RhbmNlLmV4YW1wbGUub3JnIiwiQUxFUEhfQVBJX0tFWSI6InlvdXJfYXBpX2tleV9oZXJlIn19)
+
+> After clicking **Add to LM Studio**, update `ALEPH_BASE_URL` and `ALEPH_API_KEY` in LM Studio's MCP settings.
 
 ## Requirements
 
 - **Node.js 20+**
 - An OpenAleph instance with a valid **API key** (see [OpenAleph Python guide](https://openaleph.org/docs/user-guide/104/python/) for `OPAL_HOST` / `OPAL_API_KEY` conventions)
 
-## Install and build
+## Install
+
+### As an npm package (recommended)
+
+Run the latest published version directly with `npx` (no install needed):
 
 ```bash
+npx -y barracuda-mcp
+```
+
+Or install globally:
+
+```bash
+npm install -g barracuda-mcp
+barracuda-mcp
+```
+
+Or add it as a dependency to another project:
+
+```bash
+npm install barracuda-mcp
+```
+
+The package ships with a `barracuda-mcp` executable (defined in the `bin` field) that speaks MCP over **stdio**.
+
+### From source
+
+```bash
+git clone https://github.com/Sourcery-info/barracuda-mcp.git
+cd barracuda-mcp
 npm ci
 npm run build
 ```
 
-The server entrypoint is `dist/index.js`.
+The built entrypoint is `dist/index.js`.
 
 ## Configuration
 
-Set environment variables (see [`.env.example`](.env.example)). You can load a `.env` file with your process manager or shell; this repo does not load `.env` automatically.
+The server reads configuration from environment variables. This package does **not** load a `.env` file automatically — export the variables in your shell, process manager, or MCP client's `env` block.
 
 | Variable | Description |
 |----------|-------------|
@@ -35,6 +70,16 @@ Set environment variables (see [`.env.example`](.env.example)). You can load a `
 
 ## Run locally
 
+From an npm install:
+
+```bash
+export ALEPH_BASE_URL=https://your-instance.example.org
+export ALEPH_API_KEY=your_key
+npx -y barracuda-mcp
+```
+
+From source:
+
 ```bash
 export ALEPH_BASE_URL=https://your-instance.example.org
 export ALEPH_API_KEY=your_key
@@ -43,9 +88,55 @@ npm start
 
 The server speaks MCP over **stdio** (stdin/stdout). Do not run it in a terminal you expect to use interactively for other output.
 
-## Cursor MCP setup
+## MCP client setup
 
-Add a server entry to your Cursor MCP configuration (for example in **Cursor Settings → MCP**), pointing at the built JS and your environment:
+### LM Studio (recommended)
+
+The easiest way to get started: click the **Add to LM Studio** button at the top of this README for one-click install.
+
+After clicking, open **LM Studio → Program → MCP** and replace the placeholder `ALEPH_BASE_URL` and `ALEPH_API_KEY` values with your own.
+
+To add it manually instead:
+
+```json
+{
+  "mcpServers": {
+    "barracuda-mcp": {
+      "command": "npx",
+      "args": ["-y", "barracuda-mcp"],
+      "env": {
+        "ALEPH_BASE_URL": "https://your-instance.example.org",
+        "ALEPH_API_KEY": "your_api_key_here"
+      }
+    }
+  }
+}
+```
+
+See the [LM Studio MCP docs](https://lmstudio.ai/docs/app/mcp) for more.
+
+### Cursor
+
+Add a server entry in **Cursor Settings → MCP**:
+
+```json
+{
+  "mcpServers": {
+    "openaleph": {
+      "command": "npx",
+      "args": ["-y", "barracuda-mcp"],
+      "env": {
+        "ALEPH_BASE_URL": "https://your-instance.example.org",
+        "ALEPH_API_KEY": "your_api_key_here"
+      }
+    }
+  }
+}
+```
+
+#### Cursor from a local source build
+
+If you've cloned and built from source, point Cursor at the built JS:
 
 ```json
 {
@@ -62,7 +153,7 @@ Add a server entry to your Cursor MCP configuration (for example in **Cursor Set
 }
 ```
 
-For development without a prior `npm run build`, you can use `tsx`:
+For development without running `npm run build`, you can use `tsx`:
 
 ```json
 {
@@ -78,6 +169,10 @@ For development without a prior `npm run build`, you can use `tsx`:
   }
 }
 ```
+
+### Claude Desktop / other stdio MCP clients
+
+Any MCP client that supports stdio works — use the same `command` / `args` / `env` shape as above.
 
 ## Tool: `aleph_search`
 

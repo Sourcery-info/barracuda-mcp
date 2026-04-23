@@ -1,12 +1,19 @@
 {
   "name": "barracuda-mcp",
   "version": "0.1.0",
-  "description": "MCP server for OpenAleph entity search",
+  "description": "MCP server for OpenAleph entity and document search.",
   "type": "module",
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "bin": {
     "barracuda-mcp": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "prompts",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
@@ -16,17 +23,36 @@
     "test:e2e:entity": "vitest run --config vitest.e2e.config.ts test/e2e/aleph-entity.e2e.test.ts",
     "test:watch": "vitest",
     "lint": "eslint .",
-    "e2e:entity": "tsx scripts/fetch-entity.ts"
+    "e2e:entity": "tsx scripts/fetch-entity.ts",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run lint && npm run test && npm run build"
   },
   "engines": {
     "node": ">=20"
   },
   "keywords": [
     "mcp",
+    "model-context-protocol",
     "openaleph",
-    "model-context-protocol"
+    "aleph",
+    "opal",
+    "cursor",
+    "followthemoney",
+    "entity-search"
   ],
+  "author": "Jason Norwood-Young <jason@10layer.com>",
   "license": "MIT",
+  "homepage": "https://github.com/Sourcery-info/barracuda-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Sourcery-info/barracuda-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Sourcery-info/barracuda-mcp/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "turndown": "^7.2.4",
