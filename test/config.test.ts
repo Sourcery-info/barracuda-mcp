@@ -47,6 +47,65 @@ describe("loadConfig", () => {
       /API key/i
     );
   });
+
+  it("defaults csvMaxBytes when ALEPH_CSV_MAX_BYTES unset", () => {
+    const c = loadConfig(
+      { ALEPH_BASE_URL: "https://x.org", ALEPH_API_KEY: "k" },
+      "1"
+    );
+    expect(c.csvMaxBytes).toBe(524_288_000);
+    expect(c.duckdbMemoryLimit).toBeUndefined();
+  });
+
+  it("clamps ALEPH_CSV_MAX_BYTES to the 1 MB minimum", () => {
+    const c = loadConfig(
+      {
+        ALEPH_BASE_URL: "https://x.org",
+        ALEPH_API_KEY: "k",
+        ALEPH_CSV_MAX_BYTES: "10",
+      },
+      "1"
+    );
+    expect(c.csvMaxBytes).toBe(1_048_576);
+  });
+
+  it("throws on non-numeric ALEPH_CSV_MAX_BYTES", () => {
+    expect(() =>
+      loadConfig(
+        {
+          ALEPH_BASE_URL: "https://x.org",
+          ALEPH_API_KEY: "k",
+          ALEPH_CSV_MAX_BYTES: "big",
+        },
+        "1"
+      )
+    ).toThrow(/ALEPH_CSV_MAX_BYTES/);
+  });
+
+  it("accepts ALEPH_DUCKDB_MEMORY_LIMIT like 2GB", () => {
+    const c = loadConfig(
+      {
+        ALEPH_BASE_URL: "https://x.org",
+        ALEPH_API_KEY: "k",
+        ALEPH_DUCKDB_MEMORY_LIMIT: "2gb",
+      },
+      "1"
+    );
+    expect(c.duckdbMemoryLimit).toBe("2GB");
+  });
+
+  it("throws on malformed ALEPH_DUCKDB_MEMORY_LIMIT", () => {
+    expect(() =>
+      loadConfig(
+        {
+          ALEPH_BASE_URL: "https://x.org",
+          ALEPH_API_KEY: "k",
+          ALEPH_DUCKDB_MEMORY_LIMIT: "a lot",
+        },
+        "1"
+      )
+    ).toThrow(/ALEPH_DUCKDB_MEMORY_LIMIT/);
+  });
 });
 
 describe("clampSearchLimit", () => {

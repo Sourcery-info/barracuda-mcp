@@ -1,0 +1,3 @@
+{"name": "foo", "amount": 10, "note": "first"}
+{"name": "bar", "amount": 20, "note": "second"}
+{"name": "baz", "amount": 30, "note": "third"}

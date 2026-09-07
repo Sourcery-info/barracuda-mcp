@@ -1,0 +1,4 @@
+name,amount,note
+foo,10,"has, comma"
+bar,20,plain
+baz,30,"quote ""inside"""

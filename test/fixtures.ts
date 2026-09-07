@@ -7,6 +7,7 @@ export function testConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     requestTimeoutMs: 10_000,
     sessionId: "session-fixture",
     userAgent: "barracuda-mcp/test",
+    csvMaxBytes: 524_288_000,
     ...overrides,
   };
 }

@@ -66,6 +66,12 @@ export class AlephHttpError extends Error {
 
 export type FetchLike = typeof fetch;
 
+/** Redirect statuses we follow manually for archive downloads. */
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+
+/** Max redirect hops when resolving an archive URL to its signed target. */
+export const MAX_ARCHIVE_REDIRECTS = 3;
+
 /**
  * Some OpenAleph/Elasticsearch deployments return 500 on `filter:schemata` while accepting
  * `schemata:Name` inside the main `q` string (see OpenAleph Advanced Search).
@@ -158,31 +164,10 @@ export class AlephClient {
     url: string,
     errorLabel: string
   ): Promise<unknown> {
-    const controller = new AbortController();
-    const timer = setTimeout(
-      () => controller.abort(),
-      this.config.requestTimeoutMs
-    );
-
-    let response: Response;
-    try {
-      response = await this.fetchImpl(url, {
-        method: "GET",
-        headers: this.headers(),
-        signal: controller.signal,
-      });
-    } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") {
-        throw new AlephHttpError(
-          `Aleph request timed out after ${this.config.requestTimeoutMs}ms`,
-          408,
-          null
-        );
-      }
-      throw err;
-    } finally {
-      clearTimeout(timer);
-    }
+    const response = await this.fetchWithTimeout(url, {
+      headers: this.headers(),
+      redirect: "follow",
+    });
 
     const text = await response.text();
     let body: unknown = null;
@@ -203,6 +188,95 @@ export class AlephClient {
     }
 
     return body;
+  }
+
+  private async fetchWithTimeout(
+    url: string,
+    init: { headers: Headers; redirect: "follow" | "manual" | "error" }
+  ): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(
+      () => controller.abort(),
+      this.config.requestTimeoutMs
+    );
+
+    try {
+      return await this.fetchImpl(url, {
+        method: "GET",
+        headers: init.headers,
+        redirect: init.redirect,
+        signal: controller.signal,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        throw new AlephHttpError(
+          `Aleph request timed out after ${this.config.requestTimeoutMs}ms`,
+          408,
+          null
+        );
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private archiveHeaders(): Headers {
+    const h = this.headers();
+    h.set("Accept", "*/*");
+    return h;
+  }
+
+  /**
+   * Fetch an archive URL and return the raw `Response` (body stream) without
+   * parsing. The Aleph archive endpoint answers with a 302 redirect to a
+   * signed URL (often S3). Node's `fetch` follows redirects and forwards the
+   * `Authorization: ApiKey` header on same-origin hops, which S3 rejects
+   * (SignatureDoesNotMatch) because the signed query did not include it. So
+   * redirects are followed manually: auth headers are sent on the first hop
+   * only and stripped from every subsequent hop.
+   */
+  async fetchArchive(url: string): Promise<Response> {
+    let current = url;
+    for (let hop = 0; hop <= MAX_ARCHIVE_REDIRECTS; hop++) {
+      const isFirstHop = hop === 0;
+      const response = await this.fetchWithTimeout(current, {
+        headers: isFirstHop ? this.archiveHeaders() : this.plainHeaders(),
+        redirect: "manual",
+      });
+      if (REDIRECT_STATUSES.has(response.status)) {
+        // Drain/cancel the redirect body before following.
+        try {
+          await response.arrayBuffer();
+        } catch {
+          // ignore body read failures on redirects
+        }
+        const location = response.headers.get("location");
+        if (!location) {
+          throw new AlephHttpError(
+            `Aleph archive redirect (${response.status}) without Location header`,
+            502,
+            null
+          );
+        }
+        current = new URL(location, current).toString();
+        continue;
+      }
+      return response;
+    }
+    throw new AlephHttpError(
+      `Aleph archive redirect chain exceeded ${MAX_ARCHIVE_REDIRECTS} hops`,
+      508,
+      null
+    );
+  }
+
+  /** Headers for signed redirect targets: no Authorization / session. */
+  private plainHeaders(): Headers {
+    const h = new Headers();
+    h.set("User-Agent", this.config.userAgent);
+    h.set("Accept", "*/*");
+    return h;
   }
 
   async search(input: SearchQueryInput): Promise<unknown> {
