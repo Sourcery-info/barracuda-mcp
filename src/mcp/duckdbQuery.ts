@@ -8,7 +8,7 @@ export const duckdbQueryInputSchema = z.object({
     .trim()
     .min(1)
     .describe(
-      "One read-only SQL statement to run against the loaded tables (SELECT, EXPLAIN, SHOW, DESCRIBE, or PRAGMA). INSERT/UPDATE/CREATE/COPY/ATTACH and multi-statement input are rejected. Use aleph_list_tables to see available tables."
+      "One read-only SQL statement to run against the loaded tables (SELECT, EXPLAIN, SHOW, DESCRIBE, or PRAGMA). INSERT/UPDATE/CREATE/COPY/ATTACH and multi-statement input are rejected. Use duckdb_list_tables to see available tables."
     ),
   maxRows: z
     .number()
