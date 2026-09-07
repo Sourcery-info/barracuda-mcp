@@ -119,9 +119,10 @@ export class DuckDbManager {
 
   private async ensureConnection(): Promise<DuckDBConnection> {
     if (this.connection) return this.connection;
-    const configOptions: Record<string, string> = {
-      temp_directory: this.options.tempDirectory ?? "/tmp",
-    };
+    const configOptions: Record<string, string> = {};
+    if (this.options.tempDirectory) {
+      configOptions.temp_directory = this.options.tempDirectory;
+    }
     if (this.options.memoryLimit) {
       configOptions.memory_limit = this.options.memoryLimit;
     }
