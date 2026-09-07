@@ -1,6 +1,6 @@
 {
   "name": "barracuda-mcp",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "MCP server for OpenAleph entity and document search.",
   "type": "module",
   "main": "dist/index.js",
@@ -21,6 +21,7 @@
     "test": "vitest run",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
     "test:e2e:entity": "vitest run --config vitest.e2e.config.ts test/e2e/aleph-entity.e2e.test.ts",
+    "test:e2e:csv": "vitest run --config vitest.e2e.config.ts test/e2e/aleph-csv.e2e.test.ts",
     "test:watch": "vitest",
     "lint": "eslint .",
     "e2e:entity": "tsx scripts/fetch-entity.ts",
@@ -54,6 +55,7 @@
     "access": "public"
   },
   "dependencies": {
+    "@duckdb/node-api": "1.5.5-r.4",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "turndown": "^7.2.4",
     "zod": "^4.0.0"

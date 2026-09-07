@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 
 const MAX_SEARCH_LIMIT = 10_000;
 
+/** Default cap for archive CSV downloads (500 MB). */
+export const DEFAULT_CSV_MAX_BYTES = 524_288_000;
+/** Minimum accepted value for ALEPH_CSV_MAX_BYTES (1 MB). */
+export const MIN_CSV_MAX_BYTES = 1_048_576;
+
 export type AppConfig = {
   /** Origin only, e.g. https://aleph.example.org (no trailing path) */
   alephOrigin: string;
@@ -9,6 +14,10 @@ export type AppConfig = {
   requestTimeoutMs: number;
   sessionId: string;
   userAgent: string;
+  /** Max bytes for archive file downloads (default 500 MB, min 1 MB). */
+  csvMaxBytes: number;
+  /** DuckDB memory_limit setting, e.g. "2GB" (unset = DuckDB default). */
+  duckdbMemoryLimit?: string;
 };
 
 function pickBaseUrl(env: NodeJS.ProcessEnv): string | undefined {
@@ -67,12 +76,37 @@ export function loadConfig(
 
   const sessionId = env.ALEPH_SESSION_ID?.trim() || randomUUID();
 
+  const csvMaxBytesRaw = env.ALEPH_CSV_MAX_BYTES?.trim();
+  let csvMaxBytes = DEFAULT_CSV_MAX_BYTES;
+  if (csvMaxBytesRaw) {
+    const n = Number(csvMaxBytesRaw);
+    if (!Number.isFinite(n) || !Number.isInteger(n) || n <= 0) {
+      throw new Error(
+        "ALEPH_CSV_MAX_BYTES must be a positive integer (bytes)."
+      );
+    }
+    csvMaxBytes = Math.max(MIN_CSV_MAX_BYTES, n);
+  }
+
+  const duckdbMemoryLimitRaw = env.ALEPH_DUCKDB_MEMORY_LIMIT?.trim();
+  let duckdbMemoryLimit: string | undefined;
+  if (duckdbMemoryLimitRaw) {
+    if (!/^\d+(\.\d+)?\s*(b|kb|mb|gb|tb)$/i.test(duckdbMemoryLimitRaw)) {
+      throw new Error(
+        'ALEPH_DUCKDB_MEMORY_LIMIT must look like "2GB", "512MB", or "1073741824B".'
+      );
+    }
+    duckdbMemoryLimit = duckdbMemoryLimitRaw.replace(/\s+/g, "").toUpperCase();
+  }
+
   return {
     alephOrigin: normalizeOrigin(rawUrl),
     apiKey,
     requestTimeoutMs,
     sessionId,
     userAgent: `barracuda-mcp/${version}`,
+    csvMaxBytes,
+    ...(duckdbMemoryLimit !== undefined ? { duckdbMemoryLimit } : {}),
   };
 }
 

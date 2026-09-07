@@ -4,7 +4,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/barracuda-mcp.svg)](https://www.npmjs.com/package/barracuda-mcp)
 [![license](https://img.shields.io/npm/l/barracuda-mcp.svg)](./LICENSE)
 
-A [Model Context Protocol](https://modelcontextprotocol.io) server that exposes **OpenAleph** entity and document search via the official HTTP API (`GET /api/2/search`). It is intended for use from **LM Studio** (recommended), **Cursor**, **Claude Desktop**, and other MCP clients over **stdio**.
+A [Model Context Protocol](https://modelcontextprotocol.io) server that exposes **OpenAleph** entity and document search via the official HTTP API (`GET /api/2/search`), plus **SQL analysis of tabular entities** (`Table`/`CSV`/`Workbook`) through an in-memory DuckDB instance (`aleph_load_csv` → `duckdb_query`). It is intended for use from **LM Studio** (recommended), **Cursor**, **Claude Desktop**, and other MCP clients over **stdio**.
 
 [![Add to LM Studio](https://files.lmstudio.ai/deeplink/mcp-install-light.svg)](lmstudio://add_mcp?name=barracuda-mcp&config=eyJjb21tYW5kIjoibnB4IiwiYXJncyI6WyIteSIsImJhcnJhY3VkYS1tY3AiXSwiZW52Ijp7IkFMRVBIX0JBU0VfVVJMIjoiaHR0cHM6Ly95b3VyLWluc3RhbmNlLmV4YW1wbGUub3JnIiwiQUxFUEhfQVBJX0tFWSI6InlvdXJfYXBpX2tleV9oZXJlIn19)
 
@@ -63,6 +63,8 @@ The server reads configuration from environment variables. This package does **n
 | `OPAL_API_KEY` | Used if `ALEPH_API_KEY` is unset. |
 | `ALEPH_REQUEST_TIMEOUT_MS` | Optional. Request timeout in milliseconds (default `60000`, clamped between `1000` and `600000`). |
 | `ALEPH_SESSION_ID` | Optional. Sent as `X-Aleph-Session`; defaults to a random UUID per process. |
+| `ALEPH_CSV_MAX_BYTES` | Optional. Max size in bytes for archive file downloads via `aleph_load_csv` (default `524288000` = 500 MB, clamped to at least 1 MB). Downloads exceeding the cap are aborted. |
+| `ALEPH_DUCKDB_MEMORY_LIMIT` | Optional. DuckDB `memory_limit` for the in-memory analysis database, e.g. `2GB` or `512MB` (unset = DuckDB default). |
 
 **Precedence:** `ALEPH_BASE_URL` over `OPAL_HOST`; `ALEPH_API_KEY` over `OPAL_API_KEY`.
 
@@ -303,6 +305,117 @@ HTTP filters are used (not a Lucene `q:` clause) because `properties.document` i
 - [OpenAleph API layer (DeepWiki)](https://deepwiki.com/openaleph/openaleph/3.3-api-layer)
 - [MCP specification](https://modelcontextprotocol.io)
 
+## Tools: `aleph_load_csv` + `duckdb_query` + `duckdb_list_tables`
+
+These three tools together let an LLM analyze **tabular OpenAleph entities** (`Table`, `CSV`, or `Workbook` schemas — spreadsheets ingested by Aleph are converted to CSV, so they work too) with **SQL**. Raw CSVs are usually far too large for an LLM context window, so the server downloads the data into an **in-process, in-memory DuckDB** database and exposes read-only query tools.
+
+**Workflow:** `aleph_search` (or the UI) → find a tabular entity id → `aleph_load_csv` → `duckdb_query` (SQL; `duckdb_list_tables` shows what is loaded). All loaded tables live in one shared in-memory DuckDB for the lifetime of the server process, so **cross-CSV JOINs are plain SQL**. Nothing is persisted to disk: tables die with the server process.
+
+### Data acquisition (file-first, Row fallback)
+
+- **File path:** `GET /api/2/entities/:id` (detail view) exposes `links.csv` (from `csvHash`) and `links.file` (from `contentHash`) for Document-family schemas. The tool downloads that archive URL — following the 302 redirect to the signed target **without forwarding the API key** (S3 rejects signed-query + header auth) — streams it to a temp file with a byte cap (`ALEPH_CSV_MAX_BYTES`), loads it with `read_csv_auto`, and deletes the temp file.
+- **Row fallback:** mapping-created tables have no source file. The tool reconstructs rows by paginating `GET /api/2/search?q=*&filter:schema=Row&filter:properties.csv=<id>&limit=10000` (exact term match, same pattern as child-page fetching), writing them as JSON and loading with `read_json_auto` (avoids CSV quoting pitfalls). Column names are FtM-slugified property names; `properties.row` is preserved as **`_row_index`** and rows are sorted by it. Note this means **original CSV headers are lost** for mapping tables.
+- If a **`Row`** id is passed by mistake, the error hints at the parent table id from its `properties.csv`.
+
+## Tool: `aleph_load_csv`
+
+Loads a tabular entity into an in-memory DuckDB table. Re-loading the same entity under the same table name is idempotent: by default it reuses the already-loaded table (pass `force: true` to re-download), and `CREATE OR REPLACE TABLE` semantics mean the last load wins on name collisions.
+
+| Argument | Type | Description |
+|----------|------|-------------|
+| `id` | string (required) | Entity id of a tabular entity (schema `Table`, `CSV`, or `Workbook`, or one exposing `links.csv`/`links.file`). |
+| `alias` | string (optional) | SQL table name (sanitized to `[a-z0-9_]{1,63}`). Default: `t_<sanitized entity id>`. |
+| `sampleRows` | number (optional) | Sample rows included in the response (0–100, default **10**; 0 disables). |
+| `force` | boolean (optional) | Re-download and replace the table even when this entity is already loaded under the same name. Default `false`. |
+
+### Structured output shape
+
+```json
+{
+  "table": "payments",
+  "source": "file",
+  "rowCount": 1234,
+  "columns": [
+    { "name": "name", "type": "VARCHAR" },
+    { "name": "amount", "type": "BIGINT" }
+  ],
+  "sample": [
+    { "name": "foo", "amount": "10" },
+    { "name": "bar", "amount": "20" }
+  ],
+  "entity": {
+    "id": "0000….1111…",
+    "schema": "Table",
+    "dataset": "collection-id-or-null",
+    "fileName": "payments.csv"
+  },
+  "reused": false,
+  "bytesDownloaded": 45678
+}
+```
+
+- **`source`**: `"file"` (downloaded via archive) or `"rows"` (reconstructed from child `Row` entities).
+- **`bytesDownloaded`** is present only on the file path. **`reused: true`** means an already-loaded table was returned without re-downloading.
+- **`sample`** honors `sampleRows`. Numeric DuckDB values are returned as **strings** in samples/queries when they exceed JavaScript's safe integer range (BigInt safety).
+
+Errors (non-tabular schema, `Row` id by mistake, byte-cap overrun, zero `Row` children, HTTP errors) use MCP `isError` with explanatory messages, echoing the exact query tried where relevant.
+
+## Tool: `duckdb_query`
+
+Runs **one read-only SQL statement** against the in-memory DuckDB instance. Allowed statement types: `SELECT`, `EXPLAIN`, `SHOW`/`DESCRIBE` (relations), and `PRAGMA`. `INSERT`/`UPDATE`/`DELETE`/`CREATE`/`DROP`/`COPY`/`ATTACH`/`INSTALL`/`LOAD` and **multi-statement input** are rejected with a clear error. Use `read_*` table functions if you know DuckDB; no extensions are installed.
+
+| Argument | Type | Description |
+|----------|------|-------------|
+| `sql` | string (required) | One read-only statement. Reference loaded tables by name (see `duckdb_list_tables`). |
+| `maxRows` | number (optional) | Max rows to return (1–5000, default **200**). |
+
+### Structured output shape
+
+```json
+{
+  "columns": [
+    { "name": "name", "type": "VARCHAR" },
+    { "name": "amount", "type": "BIGINT" }
+  ],
+  "rows": [
+    { "name": "foo", "amount": "10" },
+    { "name": "bar", "amount": "20" }
+  ],
+  "rowCount": 2,
+  "rowLimitHit": false
+}
+```
+
+- **`rowLimitHit: true`** means the statement had more rows than `maxRows` — refine the query (add `LIMIT`/aggregation) or raise `maxRows`.
+- Values are JSON-safe: `BIGINT`/`HUGEINT`/`DECIMAL` become strings, dates/timestamps become strings, and **cell values longer than 200 characters are truncated with a `...` suffix**.
+
+## Tool: `duckdb_list_tables`
+
+No arguments. Lists tables loaded via `aleph_load_csv`:
+
+```json
+{
+  "tables": [
+    {
+      "table": "payments",
+      "entityId": "0000….1111…",
+      "schema": "Table",
+      "fileName": "payments.csv",
+      "dataset": "collection-id-or-null",
+      "rowCount": 1234,
+      "columns": [
+        { "name": "name", "type": "VARCHAR" },
+        { "name": "amount", "type": "BIGINT" }
+      ],
+      "source": "file",
+      "loadedAt": "2026-09-04T12:00:00.000Z"
+    }
+  ]
+}
+```
+
+When nothing is loaded the response contains an empty `tables` array plus a `message` telling the LLM to call `aleph_load_csv` first.
+
 ## Security notes
 
 - Treat the API key like a password: use Cursor `env` or your OS secret store; avoid committing keys.
@@ -316,6 +429,10 @@ HTTP filters are used (not a Lucene `q:` clause) because `properties.document` i
 - **401 / 403:** Invalid or expired API key, or role cannot browse/search the requested data.
 - **408 from tool:** Request timed out; increase `ALEPH_REQUEST_TIMEOUT_MS` or narrow the query.
 - **URL issues:** Only the **origin** of `ALEPH_BASE_URL` / `OPAL_HOST` is used; trailing paths are stripped.
+- **`aleph_load_csv`: "no `links.csv`" / Row fallback used:** Only the single-entity detail endpoint carries download links, and mapping-created tables have no source file at all — the tool then reconstructs rows from child `Row` entities (`filter:schema=Row&filter:properties.csv=<id>`). Original CSV headers are lost for mapping tables; column names are FtM-slugified property names, and the numeric row order is preserved in **`_row_index`**. If no `Row` children exist either, the error echoes the exact query tried (ingest gap vs access-scope).
+- **`aleph_load_csv`: byte-cap error:** Downloads are aborted past `ALEPH_CSV_MAX_BYTES` (default 500 MB). Raise the env var for larger files.
+- **DuckDB load errors on exotic encodings:** Non-UTF-8 CSVs may fail `read_csv_auto`; the DuckDB message is surfaced verbatim (known limitation).
+- **`duckdb_query`: "Rejected" errors:** Only read-only statements are allowed. Run exactly one statement per call; do not append `;`.
 
 ## Development
 
@@ -333,6 +450,7 @@ All e2e commands load [`.env`](.env.example) via `test/e2e/setup-env.ts`.
 |---------|--------------|
 | `npm run test:e2e` | Runs **all** e2e tests — includes the full search flow (and the targeted entity test when `ALEPH_E2E_ENTITY_ID` is set). |
 | `npm run test:e2e:entity` | Runs **only** the targeted entity test (`test/e2e/aleph-entity.e2e.test.ts`); skips cleanly when `ALEPH_E2E_ENTITY_ID` is unset. |
+| `npm run test:e2e:csv` | Runs **only** the targeted CSV/DuckDB test (`test/e2e/aleph-csv.e2e.test.ts`); skips cleanly when `ALEPH_E2E_CSV_ENTITY_ID` is unset. Loads a real tabular entity, asserts `rowCount > 0`, and runs COUNT + sample queries. |
 | `npm run e2e:entity -- <id>` | Standalone CLI: fetches one entity by id via `aleph_get_entity` and `aleph_get_entity_markdown`, printing JSON to stdout. Flags: `--raw`, `--markdown` / `--no-markdown`, `-h`. Id on the CLI wins over `ALEPH_E2E_ENTITY_ID`. |
 
 #### Search tuning — `ALEPH_E2E_SEARCH_*`
@@ -360,6 +478,10 @@ For reproducing a problem against **one specific document**:
 - **`ALEPH_E2E_ENTITY_ID`** — required to enable `npm run test:e2e:entity`; ignored (overridden) if you pass an id to `npm run e2e:entity --`.
 - **`ALEPH_E2E_ENTITY_FETCH_MARKDOWN`** (default `true`) — also run `aleph_get_entity_markdown` after `aleph_get_entity`.
 - **`ALEPH_E2E_ENTITY_RESPONSE_MODE`**, **`ALEPH_E2E_ENTITY_INCLUDE_RAW`**, **`ALEPH_E2E_ENTITY_INCLUDE_CONTENT_FIELDS`**, **`ALEPH_E2E_ENTITY_CONTENT_PREVIEW_CHARS`**, **`ALEPH_E2E_ENTITY_BODY_MARKDOWN_MAX_CHARS`**, **`ALEPH_E2E_ENTITY_MAX_ARRAY_VALUES_PER_FIELD`** — same semantics as their `SEARCH_` counterparts, applied to the entity tool.
+
+#### Targeted CSV/DuckDB — `ALEPH_E2E_CSV_*`
+
+- **`ALEPH_E2E_CSV_ENTITY_ID`** — required to enable `npm run test:e2e:csv`. Set it to a tabular entity id (`Table`/`CSV`/`Workbook`, or a mapping-created `Table` to exercise the Row fallback). The test loads the entity with `aleph_load_csv`, asserts `rowCount > 0`, runs `SELECT count(*)` plus a 5-row sample via `duckdb_query`, and lists tables. The full load payload (columns, sample) lands in the log file under `logs/`.
 
 Example:
 
