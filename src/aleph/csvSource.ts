@@ -293,7 +293,11 @@ export class CsvSourceClient {
       offset += hits.length;
       if (hits.length === 0) break;
       if (total !== null && rows.length >= total) break;
-      if (offset >= MAX_ROW_FALLBACK_ROWS) break;
+      if (offset >= MAX_ROW_FALLBACK_ROWS) {
+        throw new CsvSourceError(
+          `Row reconstruction aborted: exceeded hard cap of ${MAX_ROW_FALLBACK_ROWS} rows for table ${tableId}.`
+        );
+      }
     }
 
     if (rows.length === 0) {
