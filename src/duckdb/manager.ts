@@ -41,6 +41,14 @@ export type TableRegistryEntry = {
 
 export type LoadFormat = "csv" | "json";
 
+/** Options for CSV loading (JSON loading ignores these). */
+export type LoadOptions = {
+  /** Force DuckDB to treat the first row as column headers. */
+  forceHeaders?: boolean;
+  /** Force DuckDB to treat the first row as data (no headers). */
+  forceNoHeaders?: boolean;
+};
+
 export class DuckDbQueryError extends Error {
   constructor(message: string) {
     super(message);
@@ -85,6 +93,24 @@ export function normalizeColumnName(raw: string): string {
     .slice(0, 63)
     .replace(/^$/, "col");
 }
+
+/**
+ * Build a CSV reader SQL expression with optional header forcing.
+ * - forceHeaders  → HEADER=true  (first row becomes column names)
+ * - forceNoHeaders → HEADER=false (first row becomes data)
+ * - neither       → no option    (DuckDB auto-detects)
+ */
+function buildCsvReader(tmpPath: string, options?: LoadOptions): string {
+  const quoted = quoteSqlString(tmpPath);
+  if (options?.forceHeaders) {
+    return `read_csv_auto(${quoted}, HEADER=true)`;
+  }
+  if (options?.forceNoHeaders) {
+    return `read_csv_auto(${quoted}, HEADER=false)`;
+  }
+  return `read_csv_auto(${quoted})`;
+}
+
 
 /**
  * Truncate string values in a JSON-safe value tree so one cell cannot blow up
@@ -135,17 +161,20 @@ export class DuckDbManager {
    * Load a local temp file into a table with normalised column names so that
    * every column is a safe SQL identifier (lowercase, underscores only).
    * Re-loading the same name is idempotent (last load wins).
+   * Optionally accepts `forceHeaders`/`forceNoHeaders` to override DuckDB's
+   * CSV header auto-detection (only applies to `csv` format).
    */
   async loadFileToTable(
     tmpPath: string,
     tableName: string,
-    format: LoadFormat
+    format: LoadFormat,
+    options?: LoadOptions
   ): Promise<{ rowCount: number; columns: DuckDbColumn[] }> {
     const connection = await this.ensureConnection();
     const table = quoteIdentifier(tableName);
     const readerFn =
       format === "csv"
-        ? `read_csv_auto(${quoteSqlString(tmpPath)})`
+        ? buildCsvReader(tmpPath, options)
         : `read_json_auto(${quoteSqlString(tmpPath)})`;
 
     // Step 1: load into a temp table to discover column names.
