@@ -1,6 +1,6 @@
 {
   "name": "barracuda-mcp",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "MCP server for OpenAleph entity and document search.",
   "type": "module",
   "main": "dist/index.js",
@@ -67,9 +67,9 @@
     "dotenv": "^17.4.2",
     "eslint": "^9.39.0",
     "eslint-config-prettier": "^10.1.0",
-    "tsx": "^4.19.0",
+    "tsx": "^4.23.0",
     "typescript": "^5.8.0",
     "typescript-eslint": "^8.35.0",
-    "vitest": "^3.1.0"
+    "vitest": "^5.0.0"
   }
 }
