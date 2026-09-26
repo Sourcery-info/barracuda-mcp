@@ -87,6 +87,8 @@ properties.incorporationDate:[2010-01-01 TO 2015-12-31]
 numeric.rowCount:>99
 ```
 
+(On **`Table`** entities `numeric.rowCount` is the sheet’s row count — handy for filtering out trivial one-row tables.)
+
 ## Schema vs schemata
 
 - **`schema:LegalEntity`** — exact schema  
@@ -108,6 +110,26 @@ All of the above are normalized and merged into **`q`** as `(schemata:Email OR s
 ### barracuda-mcp: documents and files
 
 This MCP’s prompts assume **document and file-body retrieval** uses the **`Pages`** schema. Prefer **`schemata:Pages`** or **`schema:Pages`** when searching for PDFs, office documents, and similar indexed files—unless you know your OpenAleph instance labels them differently.
+
+### barracuda-mcp: spreadsheets and CSVs
+
+OpenAleph indexes **spreadsheets and CSVs** under the **`Table`** schema (the `CSV` and `Workbook` schemas also occur; `Workbook` sheets are converted to CSV on ingest). Search for them with:
+
+```json
+{ "schemata": "Table" }
+```
+
+```text
+schemata:Table AND "procurement"
+```
+
+Rows are stored as child **`Row`** entities (`filter:schema=Row&filter:properties.csv=<table_id>`), and **`numeric.rowCount`** is often indexed on the parent — useful for finding big sheets:
+
+```text
+schemata:Table AND numeric.rowCount:>1000
+```
+
+**Do not page `Row` children to read the data.** Pass the `Table` id to **`aleph_load_csv`** and query it with **`duckdb_query`**; the MCP handles the archive download (or the `Row` reconstruction) for you. See [casefile-workflows.md](casefile-workflows.md) blocks **G** and **H**.
 
 ### Per-page text on `Pages` documents
 
